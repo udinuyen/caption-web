@@ -13,3 +13,12 @@ services:
         value: tiny
       - key: MAX_UPLOAD_MB
         value: "300"
+      # Memory diet for the 512 MB free tier: without these, the ffmpeg
+      # burn step OOM-kills the container (verified live 2026-11-08:
+      # transcription finished, service died during the burn).
+      - key: RELEASE_MODEL_AFTER_TRANSCRIBE
+        value: "1"
+      - key: FFMPEG_PRESET
+        value: ultrafast
+      - key: FFMPEG_THREADS
+        value: "2"
