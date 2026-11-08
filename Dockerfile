@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Bake the Whisper model into the image so the first real user request
 # does not have to wait for a ~140 MB download.
-ARG WHISPER_MODEL=base
+ARG WHISPER_MODEL=tiny
 ENV WHISPER_MODEL=${WHISPER_MODEL}
 RUN python -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')"
 
