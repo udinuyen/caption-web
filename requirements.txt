@@ -1,0 +1,8 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+faster-whisper==1.1.0
+requests==2.32.3
+# PyAV must stay on 12.x: faster-whisper 1.1.0 calls av.open(metadata_errors=...)
+# which newer PyAV (14+) removed -> TypeError at transcribe time.
+av==12.3.0
