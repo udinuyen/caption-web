@@ -96,7 +96,7 @@
   </div>
 
   <p class="note">
-    File được xử lý trên chính server này và tự xóa sau 1 giờ.
+    File được xử lý trên chính server này và tự xóa sau 10 phút — nhớ tải video về ngay khi xong.
     Phụ đề do AI (Whisper) nghe chép tự động nên đôi khi sai 1–2 chữ tên riêng —
     bạn có thể tải thêm file .SRT/.ASS về để sửa nhanh trước khi đăng nếu cần.
   </p>
@@ -147,7 +147,10 @@ goBtn.addEventListener('click', async () => {
   let jobId;
   try {
     const r = await fetch('/api/jobs', { method: 'POST', body: fd });
-    const data = await r.json();
+    const raw = await r.text();
+    let data;
+    try { data = JSON.parse(raw); }
+    catch { throw new Error('Server không trả lời — gói Free hay ngủ hoặc vừa khởi động lại. Đợi khoảng 1 phút rồi bấm Tạo phụ đề lại.'); }
     if (!r.ok) throw new Error(data.detail || 'Tải lên thất bại');
     jobId = data.job_id;
   } catch (err) {
@@ -161,7 +164,10 @@ goBtn.addEventListener('click', async () => {
   const timer = setInterval(async () => {
     try {
       const r = await fetch('/api/jobs/' + jobId);
-      const data = await r.json();
+      const raw = await r.text();
+      let data;
+      try { data = JSON.parse(raw); }
+      catch { throw new Error('Server vừa khởi động lại giữa chừng (thường do tràn RAM ở gói Free). Đợi 1 phút rồi thử lại với video ngắn hơn.'); }
       if (!r.ok) throw new Error(data.detail || 'Mất kết nối tới job');
       stepEl.textContent = (data.status === 'queued' ? '⏳ ' : '⚙️ ') + data.step;
       if (data.status === 'done') {
