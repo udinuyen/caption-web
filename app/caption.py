@@ -23,6 +23,16 @@ def get_model(model_name: str):
     return _MODEL
 
 
+def release_model():
+    """Drop the Whisper model from RAM. On the 512 MB free tier the
+    ffmpeg burn step that follows needs that room, or the container
+    gets OOM-killed mid-encode and the job is lost."""
+    global _MODEL
+    _MODEL = None
+    import gc
+    gc.collect()
+
+
 def probe(path: Path):
     out = subprocess.check_output([
         "ffprobe", "-v", "error", "-select_streams", "v:0",
@@ -194,9 +204,16 @@ def burn(video: Path, ass: Path, out: Path, to_916: bool, boost_audio: bool,
     # Escape the ass path for the ffmpeg filter parser.
     ass_esc = str(ass).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
     vf.append(f"ass='{ass_esc}'")
+    import os
+    # ultrafast + few threads uses far less RAM than veryfast; the free
+    # tier sets these env vars, bigger plans keep the better defaults.
+    preset = os.environ.get("FFMPEG_PRESET", "veryfast")
     cmd = ["ffmpeg", "-y", "-i", str(video), "-vf", ",".join(vf),
-           "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+           "-c:v", "libx264", "-crf", "18", "-preset", preset,
            "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
+    threads = os.environ.get("FFMPEG_THREADS")
+    if threads:
+        cmd += ["-threads", str(threads)]
     if boost_audio:
         # Gentle loudness normalisation for quiet phone/CapCut exports.
         cmd += ["-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "aac",

@@ -3,7 +3,9 @@
 
 One FastAPI service serves both the API and the static upload page, so a
 single Render service is all you need. Jobs run one at a time on CPU
-(a lock queues the rest) and finished files are kept for 1 hour.
+(a lock queues the rest). All job data (upload + results) is deleted
+automatically 10 minutes after upload by a background sweeper, so the
+ephemeral disk never fills up.
 """
 import os
 import shutil
@@ -17,14 +19,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .caption import (build_ass_sentence, build_ass_word, burn, probe,
-                      transcribe)
+                      release_model, transcribe)
 
 BASE = Path(__file__).resolve().parent.parent
 JOBS_DIR = Path(os.environ.get("JOBS_DIR", "/tmp/caption-jobs"))
 JOBS_DIR.mkdir(parents=True, exist_ok=True)
 MODEL_NAME = os.environ.get("WHISPER_MODEL", "base")
 MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "300"))
-JOB_TTL_SECONDS = 3600
+JOB_TTL_SECONDS = int(os.environ.get("JOB_TTL_SECONDS", "600"))
+SWEEP_SECONDS = int(os.environ.get("SWEEP_SECONDS", "60"))
 ALLOWED_EXT = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 
 app = FastAPI(title="Auto Caption Web")
@@ -41,6 +44,19 @@ def cleanup_old_jobs():
             JOBS.pop(job_id, None)
 
 
+def sweeper():
+    """Delete expired jobs even when nobody uploads anything new."""
+    while True:
+        time.sleep(SWEEP_SECONDS)
+        try:
+            cleanup_old_jobs()
+        except Exception:
+            pass
+
+
+threading.Thread(target=sweeper, daemon=True).start()
+
+
 def run_job(job_id: str):
     job = JOBS[job_id]
     with RUNNING:
@@ -50,6 +66,8 @@ def run_job(job_id: str):
             segments, detected = transcribe(job["input"], MODEL_NAME,
                                             job["language"])
             job["detected_language"] = detected
+            if os.environ.get("RELEASE_MODEL_AFTER_TRANSCRIBE") == "1":
+                release_model()
 
             src_w, src_h, _ = probe(job["input"])
             if job["to_916"]:
@@ -74,6 +92,17 @@ def run_job(job_id: str):
             job["srt"] = ass_path.with_suffix(".srt")
             job["status"] = "done"
             job["step"] = "Xong!"
+            # The 10-minute countdown starts when the result is READY,
+            # not at upload: on a slow server the processing itself can
+            # take minutes, and the user still needs time to download.
+            job["created"] = time.time()
+            # The uploaded original is no longer needed once the
+            # captioned video exists: delete it right away so the disk
+            # only holds the (usually smaller) result until the TTL.
+            try:
+                job["input"].unlink(missing_ok=True)
+            except Exception:
+                pass
         except Exception as exc:  # surface the real reason to the page
             job["status"] = "error"
             job["step"] = str(exc)[:600]
@@ -139,8 +168,8 @@ async def create_job(
 def job_status(job_id: str):
     job = JOBS.get(job_id)
     if not job:
-        raise HTTPException(404, "Không thấy job (có thể đã quá 1 giờ, "
-                                 "file đã bị xóa)")
+        raise HTTPException(404, "Không thấy job (dữ liệu tự xóa sau "
+                                 "10 phút, file đã bị xóa)")
     data = {"status": job["status"], "step": job["step"],
             "detected_language": job["detected_language"]}
     if job["status"] == "done":
