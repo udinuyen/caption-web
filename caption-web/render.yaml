@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: caption-web
+    runtime: docker
+    # Starter (2 GB RAM) is the realistic minimum: the Whisper "base"
+    # model + ffmpeg do not fit comfortably in the free tier's 512 MB.
+    plan: starter
+    region: singapore
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: WHISPER_MODEL
+        value: base
+      - key: MAX_UPLOAD_MB
+        value: "300"
